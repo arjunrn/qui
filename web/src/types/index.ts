@@ -853,6 +853,43 @@ export interface DashboardSettingsInput {
   trackerBreakdownItemsPerPage?: number
 }
 
+export type ThemeEffectsThemeScope = "shared" | "per-theme"
+export type ThemeEffectsBackgroundScope = "shared" | "per-variation"
+export type ThemeEffectsModeScope = "shared" | "per-mode"
+export type ThemeEffectsParticlesMode = "off" | "auto" | "on"
+export type ThemeEffectsBackgroundPosition = "top" | "center" | "bottom"
+export type ThemeEffectsMobileBackground = "same" | "disabled"
+export type AnimeVariation = "sakura" | "ocean" | "midnight" | "sunset"
+export type ThemeEffectsColorMode = "light" | "dark"
+export type ThemeEffectsAssetSlot = string
+
+export interface ThemeEffectsSettings {
+  id: number
+  userId: number
+  themeScope: ThemeEffectsThemeScope
+  backgroundScope: ThemeEffectsBackgroundScope
+  modeScope: ThemeEffectsModeScope
+  particlesMode: ThemeEffectsParticlesMode
+  backgroundPosition: ThemeEffectsBackgroundPosition
+  backgroundOpacity: number
+  overlayStrength: number
+  mobileBackground: ThemeEffectsMobileBackground
+  assetSlots: Partial<Record<ThemeEffectsAssetSlot, boolean>>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ThemeEffectsSettingsInput {
+  themeScope?: ThemeEffectsThemeScope
+  backgroundScope?: ThemeEffectsBackgroundScope
+  modeScope?: ThemeEffectsModeScope
+  particlesMode?: ThemeEffectsParticlesMode
+  backgroundPosition?: ThemeEffectsBackgroundPosition
+  backgroundOpacity?: number
+  overlayStrength?: number
+  mobileBackground?: ThemeEffectsMobileBackground
+}
+
 export interface LogExclusions {
   id: number
   patterns: string[]

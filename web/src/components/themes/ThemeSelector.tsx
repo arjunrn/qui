@@ -3,15 +3,19 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+import { ThemeEffectsSettings } from "@/components/themes/ThemeEffectsSettings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { themes, isThemePremium, type Theme } from "@/config/themes"
 import { useHasPremiumAccess } from "@/hooks/useLicense.ts"
 import { useTheme } from "@/hooks/useTheme"
 import { getThemeColors, getThemeVariation } from "@/utils/theme"
 import { canSwitchToPremiumTheme } from "@/lib/license-entitlement"
-import { Sparkles, Lock, Check, Palette, AlertTriangle, WifiOff } from "lucide-react"
+import { Sparkles, Lock, Check, Palette, AlertTriangle, Settings2, WifiOff } from "lucide-react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 interface ThemeCardProps {
@@ -20,9 +24,19 @@ interface ThemeCardProps {
   isLocked: boolean
   onSelect: () => void
   onVariationSelect: (themeId: string, variationId: string) => void
+  showSettingsButton?: boolean
+  onOpenSettings?: () => void
 }
 
-function ThemeCard({ theme, isSelected, isLocked, onSelect, onVariationSelect }: ThemeCardProps) {
+function ThemeCard({
+  theme,
+  isSelected,
+  isLocked,
+  onSelect,
+  onVariationSelect,
+  showSettingsButton = false,
+  onOpenSettings,
+}: ThemeCardProps) {
   // Get current variation for theme (validated)
   const variation = getThemeVariation(theme.id)
 
@@ -37,22 +51,41 @@ function ThemeCard({ theme, isSelected, isLocked, onSelect, onVariationSelect }:
       onClick={!isLocked ? onSelect : undefined}
     >
       <CardHeader className="pb-2 sm:pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-1 sm:gap-2">
-            {theme.name}
-            {isSelected && (
-              <Check className="h-3 w-3 sm:h-4 sm:w-4 text-primary" />
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1">
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1 sm:gap-2">
+              {theme.name}
+              {isSelected && (
+                <Check className="h-3 w-3 sm:h-4 sm:w-4 text-primary" />
+              )}
+            </CardTitle>
+            {theme.description && (
+              <CardDescription className="text-xs line-clamp-2">
+                {theme.description}
+              </CardDescription>
             )}
-          </CardTitle>
-          {isLocked && (
-            <Lock className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-          )}
+          </div>
+
+          <div className="flex items-center gap-1">
+            {showSettingsButton && onOpenSettings && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onOpenSettings()
+                }}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {isLocked && (
+              <Lock className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            )}
+          </div>
         </div>
-        {theme.description && (
-          <CardDescription className="text-xs line-clamp-2">
-            {theme.description}
-          </CardDescription>
-        )}
       </CardHeader>
       <CardContent className="pt-0 space-y-2 sm:space-y-3">
         {/* Theme preview colors and variations */}
@@ -142,12 +175,14 @@ function ThemeCard({ theme, isSelected, isLocked, onSelect, onVariationSelect }:
 export function ThemeSelector() {
   const { theme: currentTheme, setTheme, setVariation } = useTheme()
   const { hasPremiumAccess, isLoading, isError } = useHasPremiumAccess()
+  const [themeEffectsTarget, setThemeEffectsTarget] = useState<string | null>(null)
 
   const canSwitchPremium = canSwitchToPremiumTheme({
     hasPremiumAccess,
     isError,
     isLoading,
   })
+  const canUseThemeEffects = canSwitchPremium
 
   const isThemeLicensed = (themeId: string) => {
     if (!isThemePremium(themeId)) return true // Free themes are always available
@@ -218,7 +253,7 @@ export function ThemeSelector() {
           Theme Selection
         </CardTitle>
         <CardDescription>
-          Choose from available themes. Premium themes require a valid license.
+          Choose from available themes. Premium access unlocks premium themes and custom background effects on all themes.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -246,6 +281,8 @@ export function ThemeSelector() {
                 isLocked={false}
                 onSelect={() => handleThemeSelect(theme.id)}
                 onVariationSelect={handleVariationSelect}
+                showSettingsButton={canUseThemeEffects}
+                onOpenSettings={canUseThemeEffects ? () => setThemeEffectsTarget(theme.id) : undefined}
               />
             ))}
           </div>
@@ -286,6 +323,8 @@ export function ThemeSelector() {
                     isLocked={!isLicensed}
                     onSelect={() => handleThemeSelect(theme.id)}
                     onVariationSelect={handleVariationSelect}
+                    showSettingsButton={canUseThemeEffects && isLicensed}
+                    onOpenSettings={() => setThemeEffectsTarget(theme.id)}
                   />
                 )
               })}
@@ -293,6 +332,18 @@ export function ThemeSelector() {
           )}
         </div>
       </CardContent>
+
+      <Dialog open={themeEffectsTarget !== null} onOpenChange={(open) => !open && setThemeEffectsTarget(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Theme Effects</DialogTitle>
+            <DialogDescription>
+              Backgrounds, readability controls, and supported effects for the selected theme.
+            </DialogDescription>
+          </DialogHeader>
+          {themeEffectsTarget && <ThemeEffectsSettings themeId={themeEffectsTarget} compact />}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

@@ -4280,6 +4280,172 @@ paths:
               schema:
                 $ref: '#/components/schemas/LogExclusions'
 
+  /api/theme-effects:
+    get:
+      tags:
+        - Themes
+      summary: Get premium theme effects
+      description: Returns the current user's premium theme effects settings and uploaded asset availability for the requested theme.
+      parameters:
+        - name: themeId
+          in: query
+          required: true
+          description: Premium theme identifier to read settings for
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current premium theme effects settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThemeEffectsSettings'
+        '500':
+          description: Failed to load premium theme effects settings
+    put:
+      tags:
+        - Themes
+      summary: Update premium theme effects
+      description: Updates premium theme behavior such as theme scope, background scope, particle mode, and overlay strength.
+      parameters:
+        - name: themeId
+          in: query
+          required: true
+          description: Premium theme identifier to update settings for
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThemeEffectsSettingsInput'
+      responses:
+        '200':
+          description: Updated premium theme effects settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThemeEffectsSettings'
+        '400':
+          description: Invalid request payload
+        '500':
+          description: Failed to update premium theme effects settings
+
+  /api/theme-effects/background/{slot}:
+    parameters:
+      - name: slot
+        in: path
+        required: true
+        description: Asset slot to read or modify
+        schema:
+          $ref: '#/components/schemas/ThemeEffectsAssetSlot'
+      - name: themeId
+        in: query
+        required: true
+        description: Premium theme identifier to read or modify backgrounds for
+        schema:
+          type: string
+    get:
+      tags:
+        - Themes
+      summary: Get premium theme background asset
+      description: Returns the uploaded image for an explicit premium theme asset slot.
+      responses:
+        '200':
+          description: Background asset bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid slot
+        '404':
+          description: No uploaded background exists for this slot
+        '500':
+          description: Failed to load background image
+    post:
+      tags:
+        - Themes
+      summary: Upload premium theme background asset
+      description: Uploads a JPEG, PNG, or WebP image for a specific premium theme asset slot.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - background
+              properties:
+                background:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Updated premium theme effects settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThemeEffectsSettings'
+        '400':
+          description: Invalid slot or image
+        '413':
+          description: Upload exceeded 5 MB limit
+        '500':
+          description: Failed to store background image
+    delete:
+      tags:
+        - Themes
+      summary: Delete premium theme background asset
+      description: Removes the uploaded image from a specific premium theme asset slot.
+      responses:
+        '204':
+          description: Background asset removed
+        '400':
+          description: Invalid slot
+        '500':
+          description: Failed to delete background image
+
+  /api/theme-effects/background/resolved:
+    get:
+      tags:
+        - Themes
+      summary: Get resolved premium theme background
+      description: Returns the image selected by the current premium theme background scope, variation, and light or dark mode.
+      parameters:
+        - name: themeId
+          in: query
+          required: true
+          description: Premium theme identifier to resolve a background for
+          schema:
+            type: string
+        - name: variation
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/ThemeEffectsColorMode'
+      responses:
+        '200':
+          description: Resolved background asset bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid variation or mode
+        '404':
+          description: No uploaded background matches the current scope
+        '500':
+          description: Failed to load background image
+
   /api/logs/stream:
     get:
       tags:
@@ -5987,6 +6153,118 @@ components:
           items:
             type: string
           description: List of log message patterns to hide
+
+    ThemeEffectsThemeScope:
+      type: string
+      enum: [shared, per-theme]
+
+    ThemeEffectsBackgroundScope:
+      type: string
+      enum: [shared, per-variation]
+
+    ThemeEffectsModeScope:
+      type: string
+      enum: [shared, per-mode]
+
+    ThemeEffectsParticlesMode:
+      type: string
+      enum: [off, auto, on]
+
+    ThemeEffectsBackgroundPosition:
+      type: string
+      enum: [top, center, bottom]
+
+    ThemeEffectsBackgroundOpacity:
+      type: integer
+      minimum: 0
+      maximum: 100
+      default: 42
+
+    ThemeEffectsOverlayStrength:
+      type: integer
+      minimum: 0
+      maximum: 100
+      default: 28
+
+    ThemeEffectsMobileBackground:
+      type: string
+      enum: [same, disabled]
+
+    ThemeEffectsColorMode:
+      type: string
+      enum: [light, dark]
+
+    ThemeEffectsAssetSlot:
+      type: string
+      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+
+    ThemeEffectsSettings:
+      type: object
+      required:
+        - id
+        - userId
+        - themeScope
+        - backgroundScope
+        - modeScope
+        - particlesMode
+        - backgroundPosition
+        - backgroundOpacity
+        - overlayStrength
+        - mobileBackground
+        - assetSlots
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        themeScope:
+          $ref: '#/components/schemas/ThemeEffectsThemeScope'
+        backgroundScope:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundScope'
+        modeScope:
+          $ref: '#/components/schemas/ThemeEffectsModeScope'
+        particlesMode:
+          $ref: '#/components/schemas/ThemeEffectsParticlesMode'
+        backgroundPosition:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundPosition'
+        backgroundOpacity:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundOpacity'
+        overlayStrength:
+          $ref: '#/components/schemas/ThemeEffectsOverlayStrength'
+        mobileBackground:
+          $ref: '#/components/schemas/ThemeEffectsMobileBackground'
+        assetSlots:
+          type: object
+          additionalProperties:
+            type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ThemeEffectsSettingsInput:
+      type: object
+      properties:
+        themeScope:
+          $ref: '#/components/schemas/ThemeEffectsThemeScope'
+        backgroundScope:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundScope'
+        modeScope:
+          $ref: '#/components/schemas/ThemeEffectsModeScope'
+        particlesMode:
+          $ref: '#/components/schemas/ThemeEffectsParticlesMode'
+        backgroundPosition:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundPosition'
+        backgroundOpacity:
+          $ref: '#/components/schemas/ThemeEffectsBackgroundOpacity'
+        overlayStrength:
+          $ref: '#/components/schemas/ThemeEffectsOverlayStrength'
+        mobileBackground:
+          $ref: '#/components/schemas/ThemeEffectsMobileBackground'
 
     LatestVersionResponse:
       type: object

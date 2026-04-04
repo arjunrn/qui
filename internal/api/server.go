@@ -76,6 +76,7 @@ type Server struct {
 	automationService                *automations.Service
 	trackerCustomizationStore        *models.TrackerCustomizationStore
 	dashboardSettingsStore           *models.DashboardSettingsStore
+	themeEffectsStore                *models.ThemeEffectsStore
 	logExclusionsStore               *models.LogExclusionsStore
 	notificationTargetStore          *models.NotificationTargetStore
 	notificationService              *notifications.Service
@@ -115,6 +116,7 @@ type Dependencies struct {
 	AutomationService                *automations.Service
 	TrackerCustomizationStore        *models.TrackerCustomizationStore
 	DashboardSettingsStore           *models.DashboardSettingsStore
+	ThemeEffectsStore                *models.ThemeEffectsStore
 	LogExclusionsStore               *models.LogExclusionsStore
 	NotificationTargetStore          *models.NotificationTargetStore
 	NotificationService              *notifications.Service
@@ -162,6 +164,7 @@ func NewServer(deps *Dependencies) *Server {
 		automationService:                deps.AutomationService,
 		trackerCustomizationStore:        deps.TrackerCustomizationStore,
 		dashboardSettingsStore:           deps.DashboardSettingsStore,
+		themeEffectsStore:                deps.ThemeEffectsStore,
 		logExclusionsStore:               deps.LogExclusionsStore,
 		notificationTargetStore:          deps.NotificationTargetStore,
 		notificationService:              deps.NotificationService,
@@ -323,6 +326,7 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	rssHandler := handlers.NewRSSHandler(s.syncManager)
 	rssSSEHandler := handlers.NewRSSSSEHandler(s.syncManager)
 	dashboardSettingsHandler := handlers.NewDashboardSettingsHandler(s.dashboardSettingsStore)
+	themeEffectsHandler := handlers.NewThemeEffectsHandler(s.themeEffectsStore, s.config.GetDataDir())
 	logExclusionsHandler := handlers.NewLogExclusionsHandler(s.logExclusionsStore)
 	logsHandler := handlers.NewLogsHandler(s.config)
 	notificationsHandler := handlers.NewNotificationsHandler(s.notificationTargetStore, s.notificationService)
@@ -444,6 +448,12 @@ func (s *Server) Handler() (*chi.Mux, error) {
 			// Dashboard settings (per-user layout preferences)
 			r.Get("/dashboard-settings", dashboardSettingsHandler.Get)
 			r.Put("/dashboard-settings", dashboardSettingsHandler.Update)
+			r.Get("/theme-effects", themeEffectsHandler.Get)
+			r.Put("/theme-effects", themeEffectsHandler.Update)
+			r.Get("/theme-effects/background/resolved", themeEffectsHandler.GetResolvedBackground)
+			r.Get("/theme-effects/background/{slot}", themeEffectsHandler.GetBackground)
+			r.Post("/theme-effects/background/{slot}", themeEffectsHandler.UploadBackground)
+			r.Delete("/theme-effects/background/{slot}", themeEffectsHandler.DeleteBackground)
 
 			// Log exclusions (muted log message patterns)
 			r.Get("/log-exclusions", logExclusionsHandler.Get)

@@ -83,6 +83,10 @@ import type {
   RefreshRSSItemRequest,
   RegexValidationResult,
   RemoveRSSItemRequest,
+  ThemeEffectsAssetSlot,
+  ThemeEffectsColorMode,
+  ThemeEffectsSettings,
+  ThemeEffectsSettingsInput,
   RenameRSSRuleRequest,
   RestoreMode,
   RestorePlan,
@@ -336,7 +340,7 @@ async function attemptSSORecoveryNavigation(options?: { bypassGuard?: boolean; t
     try {
       const registrations = await navigator.serviceWorker.getRegistrations()
       await Promise.all(
-        registrations.filter(r => r.scope === quiScope).map(r => r.unregister()),
+        registrations.filter(r => r.scope === quiScope).map(r => r.unregister())
       )
     } catch {
       // ignore unregister errors
@@ -350,7 +354,7 @@ async function attemptSSORecoveryNavigation(options?: { bypassGuard?: boolean; t
     try {
       const names = await caches.keys()
       await Promise.all(
-        names.filter(name => name.endsWith(quiScope)).map(name => caches.delete(name)),
+        names.filter(name => name.endsWith(quiScope)).map(name => caches.delete(name))
       )
     } catch {
       // ignore cache clear errors
@@ -436,12 +440,15 @@ class ApiClient {
     endpoint: string,
     options?: RequestInit
   ): Promise<T> {
+    const headers = new Headers(options?.headers)
+    const isFormDataBody = options?.body instanceof FormData
+    if (!isFormDataBody && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json")
+    }
+
     const response = await ssoSafeFetch(`${API_BASE}${endpoint}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers,
     })
 
     if (!response.ok) {
@@ -2155,6 +2162,55 @@ class ApiClient {
       method: "PUT",
       body: JSON.stringify(data),
     })
+  }
+
+  async getThemeEffectsSettings(themeId: string): Promise<ThemeEffectsSettings> {
+    return this.request<ThemeEffectsSettings>(`/theme-effects?themeId=${encodeURIComponent(themeId)}`)
+  }
+
+  async updateThemeEffectsSettings(themeId: string, data: ThemeEffectsSettingsInput): Promise<ThemeEffectsSettings> {
+    return this.request<ThemeEffectsSettings>(`/theme-effects?themeId=${encodeURIComponent(themeId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async uploadThemeEffectsBackground(themeId: string, slot: ThemeEffectsAssetSlot, file: File): Promise<ThemeEffectsSettings> {
+    const formData = new FormData()
+    formData.append("background", file)
+
+    return this.request<ThemeEffectsSettings>(`/theme-effects/background/${slot}?themeId=${encodeURIComponent(themeId)}`, {
+      method: "POST",
+      body: formData,
+    })
+  }
+
+  async deleteThemeEffectsBackground(themeId: string, slot: ThemeEffectsAssetSlot): Promise<void> {
+    return this.request(`/theme-effects/background/${slot}?themeId=${encodeURIComponent(themeId)}`, {
+      method: "DELETE",
+    })
+  }
+
+  getThemeEffectsBackgroundUrl(themeId: string, slot: ThemeEffectsAssetSlot, cacheBuster?: string): string {
+    const url = new URL(`${API_BASE}/theme-effects/background/${slot}`, window.location.origin)
+    url.searchParams.set("themeId", themeId)
+    if (cacheBuster) {
+      url.searchParams.set("v", cacheBuster)
+    }
+    return url.toString()
+  }
+
+  getResolvedThemeEffectsBackgroundUrl(themeId: string, variation: string | undefined, mode: ThemeEffectsColorMode, cacheBuster?: string): string {
+    const url = new URL(`${API_BASE}/theme-effects/background/resolved`, window.location.origin)
+    url.searchParams.set("themeId", themeId)
+    if (variation) {
+      url.searchParams.set("variation", variation)
+    }
+    url.searchParams.set("mode", mode)
+    if (cacheBuster) {
+      url.searchParams.set("v", cacheBuster)
+    }
+    return url.toString()
   }
 
   // Log Exclusions endpoints

@@ -522,6 +522,7 @@ func (app *Application) runServer() {
 	automationStore := models.NewAutomationStore(db)
 	trackerCustomizationStore := models.NewTrackerCustomizationStore(db)
 	dashboardSettingsStore := models.NewDashboardSettingsStore(db)
+	themeEffectsStore := models.NewThemeEffectsStore(db)
 	logExclusionsStore := models.NewLogExclusionsStore(db)
 
 	clientAPIKeyStore := models.NewClientAPIKeyStore(db)
@@ -767,6 +768,7 @@ func (app *Application) runServer() {
 		AutomationService:                automationService,
 		TrackerCustomizationStore:        trackerCustomizationStore,
 		DashboardSettingsStore:           dashboardSettingsStore,
+		ThemeEffectsStore:                themeEffectsStore,
 		LogExclusionsStore:               logExclusionsStore,
 		NotificationTargetStore:          notificationTargetStore,
 		NotificationService:              notificationService,

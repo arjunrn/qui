@@ -12,7 +12,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from "@/components/ui/dialog"
 import { TorrentManagementBar } from "@/components/torrents/TorrentManagementBar"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +43,7 @@ import { useDebounce } from "@/hooks/useDebounce"
 import { useInstances } from "@/hooks/useInstances"
 import { usePersistedCompactViewState } from "@/hooks/usePersistedCompactViewState"
 import { usePersistedFilterSidebarState } from "@/hooks/usePersistedFilterSidebarState"
+import { useCurrentThemeEffectsState } from "@/hooks/useThemeEffectsSettings"
 import { usePersistedUnifiedInstanceFilter } from "@/hooks/usePersistedUnifiedInstanceFilter"
 import { useTheme } from "@/hooks/useTheme"
 import { api } from "@/lib/api"
@@ -106,7 +107,7 @@ function UnifiedActionDropdown({ icon, tooltip, label, instances, onSelectInstan
             <span
               className={cn(
                 "ml-2 h-2 w-2 rounded-full flex-shrink-0",
-                instance.connected ? "bg-green-500" : "bg-red-500",
+                instance.connected ? "bg-green-500" : "bg-red-500"
               )}
             />
           </DropdownMenuItem>
@@ -168,7 +169,7 @@ export function Header({
   )
   const unifiedManageableInstances = useMemo(
     () => unifiedScopeInstances.filter((instance) => instance.id > 0),
-    [unifiedScopeInstances],
+    [unifiedScopeInstances]
   )
   const unifiedCapabilitiesResults = useQueries({
     queries: unifiedManageableInstances.map((instance) => ({
@@ -182,7 +183,7 @@ export function Header({
     () => unifiedManageableInstances.filter((_instance, i) =>
       unifiedCapabilitiesResults[i]?.data?.supportsTorrentCreation === true
     ),
-    [unifiedManageableInstances, unifiedCapabilitiesResults],
+    [unifiedManageableInstances, unifiedCapabilitiesResults]
   )
   const applyUnifiedScope = useCallback((nextIds: number[]) => {
     const normalizedIds = normalizeUnifiedInstanceIds(nextIds, activeInstanceIds)
@@ -268,6 +269,7 @@ export function Header({
     [shouldShowInstanceControls]
   )
   const { theme } = useTheme()
+  const { hasCustomBackground, canUseThemeEffects } = useCurrentThemeEffectsState()
   const { viewMode } = usePersistedCompactViewState("normal")
 
   // Query active task count for badge (lightweight endpoint, only for instance routes)
@@ -308,11 +310,11 @@ export function Header({
   // Derived at render time — avoids a cleanup Effect for stale IDs
   const validUnifiedIds = useMemo(
     () => new Set(unifiedManageableInstances.map((instance) => instance.id)),
-    [unifiedManageableInstances],
+    [unifiedManageableInstances]
   )
   const validUnifiedTorrentCreationIds = useMemo(
     () => new Set(unifiedTorrentCreationInstances.map((instance) => instance.id)),
-    [unifiedTorrentCreationInstances],
+    [unifiedTorrentCreationInstances]
   )
 
   useEffect(() => {
@@ -327,7 +329,13 @@ export function Header({
   const smInnerHeight = viewMode === "dense" ? "sm:h-10 lg:h-auto" : "sm:h-12 lg:h-auto"
 
   return (
-    <header className={cn("sticky top-0 z-50 hidden md:flex flex-wrap lg:flex-nowrap items-start lg:items-center justify-between sm:border-b bg-background pl-2 pr-4 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0", headerHeight)}>
+    <header
+      className={cn(
+        "sticky top-0 z-50 hidden md:flex flex-wrap lg:flex-nowrap items-start lg:items-center justify-between sm:border-b bg-background pl-2 pr-4 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0",
+        canUseThemeEffects && hasCustomBackground && "bg-background/90 dark:bg-background/78 supports-[backdrop-filter]:bg-background/82 dark:supports-[backdrop-filter]:bg-background/62 backdrop-blur-xl",
+        headerHeight
+      )}
+    >
       <div className={cn("hidden md:flex items-center gap-2 mr-2 order-1 lg:order-none", innerHeight)}>
         {children}
         {instanceName && (hasMultipleActiveInstances || isAllInstancesRoute) ? (

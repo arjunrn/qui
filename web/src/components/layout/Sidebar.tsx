@@ -14,6 +14,7 @@ import { UpdateBanner } from "@/components/ui/UpdateBanner"
 import { useAuth } from "@/hooks/useAuth"
 import { useCrossSeedInstanceState } from "@/hooks/useCrossSeedInstanceState"
 import { usePersistedUnifiedInstanceFilter } from "@/hooks/usePersistedUnifiedInstanceFilter"
+import { useCurrentThemeEffectsState } from "@/hooks/useThemeEffectsSettings"
 import { useTheme } from "@/hooks/useTheme"
 import { api } from "@/lib/api"
 import { getAppVersion } from "@/lib/build-info"
@@ -110,6 +111,7 @@ export function Sidebar() {
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown> | undefined
   const { logout } = useAuth()
   const { theme } = useTheme()
+  const { hasCustomBackground, canUseThemeEffects } = useCurrentThemeEffectsState()
 
   const { data: instances } = useQuery({
     queryKey: ["instances"],
@@ -159,7 +161,12 @@ export function Sidebar() {
   const appVersion = getAppVersion()
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-sidebar border-sidebar-border">
+    <div
+      className={cn(
+        "flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar",
+        canUseThemeEffects && hasCustomBackground && "bg-sidebar/92 dark:bg-sidebar/82 supports-[backdrop-filter]:bg-sidebar/84 dark:supports-[backdrop-filter]:bg-sidebar/66 backdrop-blur-xl"
+      )}
+    >
       <div className="p-6">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-sidebar-foreground">
           {theme === "swizzin" ? (

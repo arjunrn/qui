@@ -16,15 +16,17 @@ import { cn } from "@/lib/utils"
 import { MobileScrollProvider } from "@/contexts/MobileScrollContext"
 import { TorrentSelectionProvider } from "@/contexts/TorrentSelectionContext"
 import { ThemeValidator } from "@/components/themes/ThemeValidator"
+import { ThemeEffectsLayer } from "@/components/themes/ThemeEffectsLayer"
 
 function AppLayoutContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedSidebarState(false) // Desktop: persisted state
 
   return (
-    <div className="flex h-[100dvh] bg-background">
+    <div className="relative flex h-[100dvh] bg-background">
+      <ThemeEffectsLayer />
       {/* Desktop Sidebar - Collapsible */}
       <div className={cn(
-        "hidden lg:flex transition-all duration-300 ease-out overflow-hidden",
+        "relative z-10 hidden overflow-hidden transition-all duration-300 ease-out lg:flex",
         sidebarCollapsed ? "w-0 opacity-0" : "w-64 opacity-100"
       )}>
         <div className="w-64 flex-shrink-0">
@@ -32,7 +34,7 @@ function AppLayoutContent() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col min-w-0 relative">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <Header
           sidebarCollapsed={sidebarCollapsed}
         >
@@ -57,7 +59,7 @@ function AppLayoutContent() {
           </Tooltip>
         </Header>
         <main className={cn(
-          "flex-1 overflow-y-auto",
+          "relative z-10 flex-1 overflow-y-auto",
           "pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0"
         )}>
           <Outlet />

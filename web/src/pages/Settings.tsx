@@ -14,6 +14,7 @@ import { DateTimePreferencesForm } from "@/components/settings/DateTimePreferenc
 import { ExternalProgramsManager } from "@/components/settings/ExternalProgramsManager"
 import { LogSettingsPanel } from "@/components/settings/LogSettingsPanel"
 import { NotificationsManager } from "@/components/settings/NotificationsManager"
+import { ThemeEffectsSettings } from "@/components/themes/ThemeEffectsSettings"
 import { LicenseManager } from "@/components/themes/LicenseManager.tsx"
 import { ThemeSelector } from "@/components/themes/ThemeSelector"
 import {
@@ -50,14 +51,18 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { useDateTimeFormatters } from "@/hooks/useDateTimeFormatters"
 import { useInstances } from "@/hooks/useInstances"
+import { useHasPremiumAccess } from "@/hooks/useLicense"
 import { usePersistedTitleBarSpeeds } from "@/hooks/usePersistedTitleBarSpeeds"
 import { api } from "@/lib/api"
 
 import { withBasePath } from "@/lib/base-url"
+import { canSwitchToPremiumTheme } from "@/lib/license-entitlement"
 import { canRegisterProtocolHandler, getMagnetHandlerRegistrationGuidance, registerMagnetHandler } from "@/lib/protocol-handler"
 import { copyTextToClipboard, formatBytes, formatDuration } from "@/lib/utils"
 import type { SettingsSearch } from "@/routes/_authenticated/settings"
 import type { Instance, TorznabSearchCacheStats, User } from "@/types"
+import { getThemeById, themes } from "@/config/themes"
+import { useTheme } from "@/hooks/useTheme"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bell, Clock, Copy, Database, ExternalLink, FileText, Info, Key, Layers, Link2, Loader2, Palette, Plus, RefreshCw, Server, Share2, Shield, Terminal, Trash2 } from "lucide-react"
@@ -935,14 +940,11 @@ function ApplicationInfoPanel() {
     }
   }, [info])
 
-  let currentSessionAuth = "Unknown"
-  if (currentUserQuery.isLoading) {
-    currentSessionAuth = "Loading…"
-  } else if (currentUserQuery.isError) {
-    currentSessionAuth = "Unavailable"
-  } else {
-    currentSessionAuth = formatCurrentSessionAuth(user)
-  }
+  const currentSessionAuth = currentUserQuery.isLoading
+    ? "Loading…"
+    : currentUserQuery.isError
+      ? "Unavailable"
+      : formatCurrentSessionAuth(user)
 
   const updateStatus = useMemo(() => {
     if (!info) {
@@ -1155,6 +1157,14 @@ function SettingsScrollPanel({ children, contentClassName }: SettingsScrollPanel
 
 export function Settings({ search, onSearchChange }: SettingsProps) {
   const activeTab: SettingsTab = search.tab ?? "application"
+  const { theme: activeThemeId } = useTheme()
+  const { hasPremiumAccess, isLoading: isPremiumAccessLoading, isError: isPremiumAccessError } = useHasPremiumAccess()
+  const canUseThemeEffects = canSwitchToPremiumTheme({
+    hasPremiumAccess,
+    isLoading: isPremiumAccessLoading,
+    isError: isPremiumAccessError,
+  })
+  const themeEffectsTarget = getThemeById(activeThemeId)?.id ?? (themes[0]?.id ?? null)
   const scrollPanelContentClassName = "space-y-4"
 
   const handleTabChange = (tab: SettingsTab) => {
@@ -1540,6 +1550,23 @@ export function Settings({ search, onSearchChange }: SettingsProps) {
                 onCheckoutConsumed={() => onSearchChange({ tab: "themes" })}
               />
               <ThemeSelector />
+              {themeEffectsTarget && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Theme Effects</CardTitle>
+                    <CardDescription>
+                      Fine-tune uploaded backgrounds, opacity, overlay strength, and supported theme-specific effects on any theme.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {canUseThemeEffects ? <ThemeEffectsSettings themeId={themeEffectsTarget} /> : (
+                      <p className="text-sm text-muted-foreground">
+                        Premium access unlocks theme effects on all themes.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </SettingsScrollPanel>
           )}
 

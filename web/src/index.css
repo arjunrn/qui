@@ -106,6 +106,80 @@
       height: 0;
     }
   }
+
+  @keyframes theme-particle-rise {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, 115vh, 0);
+    }
+  }
+
+  @keyframes theme-particle-rise-reverse {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, -115vh, 0);
+    }
+  }
+
+  @keyframes theme-particle-sway {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    50% {
+      transform: translate3d(var(--theme-particle-sway), 0, 0);
+    }
+    100% {
+      transform: translate3d(calc(var(--theme-particle-sway) * -0.45), 0, 0);
+    }
+  }
+
+  @keyframes theme-particle-fade {
+    0% {
+      opacity: 0;
+    }
+    12% {
+      opacity: var(--theme-particle-opacity);
+    }
+    80% {
+      opacity: calc(var(--theme-particle-opacity) * 0.9);
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes theme-particle-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .theme-particle-track {
+    animation-iteration-count: infinite;
+    animation-timing-function: linear;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .theme-particle-drift {
+    animation-name: theme-particle-sway;
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-in-out;
+    animation-direction: alternate;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .theme-particle-glyph {
+    animation-iteration-count: infinite;
+    animation-timing-function: linear, linear;
+    transform: translateZ(0);
+  }
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -333,7 +407,7 @@
 
   /* Icon transitions */
   .theme-transition svg:not([class*="lucide"]) {
-    transition: color 300ms cubic-bezier(0.4, 0.0, 0.2, 1), 
+    transition: color 300ms cubic-bezier(0.4, 0.0, 0.2, 1),
                 transform 300ms cubic-bezier(0.4, 0.0, 0.2, 1);
   }
 
@@ -440,6 +514,28 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  :root[data-theme-effects-surface="generic"] {
+    --color-background: color-mix(in oklab, var(--background) 78%, transparent);
+    --color-card: color-mix(in oklab, var(--card) 72%, transparent);
+    --color-popover: color-mix(in oklab, var(--popover) 76%, transparent);
+    --color-muted: color-mix(in oklab, var(--muted) 64%, transparent);
+    --color-accent: color-mix(in oklab, var(--accent) 70%, transparent);
+    --color-sidebar: color-mix(in oklab, var(--sidebar) 76%, transparent);
+    --color-border: color-mix(in oklab, var(--border) 74%, transparent);
+    --color-input: color-mix(in oklab, var(--input) 74%, transparent);
+  }
+
+  :root.dark[data-theme-effects-surface="generic"] {
+    --color-background: color-mix(in oklab, var(--background) 86%, transparent);
+    --color-card: color-mix(in oklab, var(--card) 82%, transparent);
+    --color-popover: color-mix(in oklab, var(--popover) 84%, transparent);
+    --color-muted: color-mix(in oklab, var(--muted) 76%, transparent);
+    --color-accent: color-mix(in oklab, var(--accent) 78%, transparent);
+    --color-sidebar: color-mix(in oklab, var(--sidebar) 84%, transparent);
+    --color-border: color-mix(in oklab, var(--border) 82%, transparent);
+    --color-input: color-mix(in oklab, var(--input) 82%, transparent);
   }
 }
 

@@ -8,6 +8,7 @@ import { useCrossSeedBlocklistActions } from "@/hooks/useCrossSeedBlocklistActio
 import { useDateTimeFormatters } from "@/hooks/useDateTimeFormatters"
 import { useDebounce } from "@/hooks/useDebounce"
 import { useDelayedVisibility } from "@/hooks/useDelayedVisibility"
+import { useCurrentThemeEffectsState } from "@/hooks/useThemeEffectsSettings"
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation"
 import { usePersistedColumnFilters } from "@/hooks/usePersistedColumnFilters"
 import { usePersistedColumnOrder } from "@/hooks/usePersistedColumnOrder"
@@ -974,6 +975,7 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
   const activeSortField = sorting.length > 0 ? getBackendSortField(sorting[0].id) : "added_on"
   const activeSortOrder: "asc" | "desc" = sorting.length > 0 ? (sorting[0].desc ? "desc" : "asc") : "desc"
   const isAllInstancesView = instanceId <= 0
+  const { hasCustomBackground, canUseThemeEffects } = useCurrentThemeEffectsState()
 
   const effectiveIncludedCategories = filters?.expandedCategories ?? filters?.categories ?? []
   const effectiveExcludedCategories = filters?.expandedExcludeCategories ?? filters?.excludeCategories ?? []
@@ -2570,7 +2572,13 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
             <div style={{ position: "relative", minWidth: "min-content" }}>
               {/* Header - show in normal and dense table views */}
               {desktopViewMode !== "compact" && (
-                <div className="sticky top-0 bg-background border-b" style={{ zIndex: 50 }}>
+                <div
+                  className={cn(
+                    "sticky top-0 bg-background border-b",
+                    canUseThemeEffects && hasCustomBackground && "bg-background/88 dark:bg-background/74 supports-[backdrop-filter]:bg-background/76 dark:supports-[backdrop-filter]:bg-background/56 backdrop-blur-md"
+                  )}
+                  style={{ zIndex: 50 }}
+                >
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
