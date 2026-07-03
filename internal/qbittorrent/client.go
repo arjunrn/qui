@@ -18,68 +18,95 @@ import (
 )
 
 var (
-	setTagsMinVersion          = semver.MustParse("2.11.4")
-	torrentCreationMinVersion  = semver.MustParse("2.11.2")
-	exportTorrentMinVersion    = semver.MustParse("2.8.11")
-	trackerEditingMinVersion   = semver.MustParse("2.2.0")
-	trackerIncludeMinVersion   = semver.MustParse("2.11.4")
-	filePriorityMinVersion     = semver.MustParse("2.2.0")
-	renameTorrentMinVersion    = semver.MustParse("2.0.0")
-	renameFileMinVersion       = semver.MustParse("2.4.0")
-	renameFolderMinVersion     = semver.MustParse("2.7.0")
-	subcategoriesMinVersion    = semver.MustParse("2.9.0")
-	torrentTmpPathMinVersion   = semver.MustParse("2.8.4")
-	pathAutocompleteMinVersion = semver.MustParse("2.11.2")
-	rssSetFeedURLMinVersion    = semver.MustParse("2.9.1")
+	setTagsMinVersion                    = semver.MustParse("2.11.4")
+	setCommentMinVersion                 = semver.MustParse("2.12.1")
+	torrentCreationMinVersion            = semver.MustParse("2.11.2")
+	exportTorrentMinVersion              = semver.MustParse("2.8.11")
+	trackerEditingMinVersion             = semver.MustParse("2.2.0")
+	trackerIncludeMinVersion             = semver.MustParse("2.11.4")
+	filePriorityMinVersion               = semver.MustParse("2.2.0")
+	renameTorrentMinVersion              = semver.MustParse("2.0.0")
+	renameFileMinVersion                 = semver.MustParse("2.4.0")
+	renameFolderMinVersion               = semver.MustParse("2.7.0")
+	subcategoriesMinVersion              = semver.MustParse("2.9.0")
+	subcategoriesAlwaysEnabledMinVersion = semver.MustParse("2.15.0")
+	torrentTmpPathMinVersion             = semver.MustParse("2.8.4")
+	pathAutocompleteMinVersion           = semver.MustParse("2.11.2")
+	rssSetFeedURLMinVersion              = semver.MustParse("2.9.1")
+	shareLimitsActionMinVersion          = semver.MustParse("2.15.1")
+	shareLimitsModeMinVersion            = semver.MustParse("2.16.0") // unused still, Web API 2.16.0+
 )
+
+// errInvalidWebAPIVersion marks a session whose webapiVersion endpoint answered
+// with something other than a qBittorrent version (e.g. a reverse-proxy login
+// page whose cookies were accepted during login), as opposed to a transient
+// fetch failure against a real qBittorrent.
+var errInvalidWebAPIVersion = errors.New("invalid qBittorrent WebAPI version")
 
 type Client struct {
 	*qbt.Client
-	instanceID               int
-	webAPIVersion            string
-	supportsSetTags          bool
-	supportsTorrentCreation  bool
-	supportsTorrentExport    bool
-	supportsTrackerEditing   bool
-	supportsRenameTorrent    bool
-	supportsRenameFile       bool
-	supportsRenameFolder     bool
-	supportsFilePriority     bool
-	supportsSubcategories    bool
-	supportsTorrentTmpPath   bool
-	supportsPathAutocomplete bool
-	trackerIncludeSupported  bool
-	supportsSetRSSFeedURL    bool
-	lastHealthCheck          time.Time
-	isHealthy                bool
-	syncManager              *qbt.SyncManager
-	peerSyncManager          map[string]*qbt.PeerSyncManager // Map of torrent hash to PeerSyncManager
+	instanceID                 int
+	webAPIVersion              string
+	supportsSetTags            bool
+	supportsSetComment         bool
+	supportsTorrentCreation    bool
+	supportsTorrentExport      bool
+	supportsTrackerEditing     bool
+	supportsRenameTorrent      bool
+	supportsRenameFile         bool
+	supportsRenameFolder       bool
+	supportsFilePriority       bool
+	supportsSubcategories      bool
+	subcategoriesAlwaysEnabled bool
+	supportsTorrentTmpPath     bool
+	supportsPathAutocomplete   bool
+	trackerIncludeSupported    bool
+	supportsSetRSSFeedURL      bool
+	supportsShareLimitsAction  bool
+	supportsShareLimitsMode    bool
+	lastHealthCheck            time.Time
+	isHealthy                  bool
+	syncManager                *qbt.SyncManager
+	peerSyncManager            map[string]*qbt.PeerSyncManager // Map of torrent hash to PeerSyncManager
 	// optimisticUpdates stores temporary optimistic state changes for this instance
-	optimisticUpdates *ttlcache.Cache[string, *OptimisticTorrentUpdate]
-	trackerExclusions map[string]map[string]struct{} // Domains to hide hashes from until fresh sync arrives
-	lastServerState   *qbt.ServerState
-	mu                sync.RWMutex
-	serverStateMu     sync.RWMutex
-	healthMu          sync.RWMutex
-	completionMu      sync.Mutex
-	completionState   map[string]bool
-	completionHandler TorrentCompletionHandler
-	completionInit    bool
-	addedMu           sync.Mutex
-	addedState        map[string]struct{}
-	addedHandler      TorrentAddedHandler
-	addedInit         bool
+	optimisticUpdates    *ttlcache.Cache[string, *OptimisticTorrentUpdate]
+	trackerExclusions    map[string]map[string]struct{} // Domains to hide hashes from until fresh sync arrives
+	lastServerState      *qbt.ServerState
+	appInfoCache         *AppInfo
+	appInfoFetchedAt     time.Time
+	mu                   sync.RWMutex
+	serverStateMu        sync.RWMutex
+	healthMu             sync.RWMutex
+	appInfoMu            sync.RWMutex
+	preferencesCache     *qbt.AppPreferences
+	preferencesFetchedAt time.Time
+	preferencesMu        sync.RWMutex
+	syncEventSink        SyncEventSink
+	completionMu         sync.Mutex
+	completionState      map[string]bool
+	completionHandler    TorrentCompletionHandler
+	completionInit       bool
+	addedMu              sync.Mutex
+	addedState           map[string]struct{}
+	addedHandler         TorrentAddedHandler
+	addedInit            bool
+
+	// activeTaskCount caches the number of running/queued torrent-creation tasks.
+	// It is refreshed at most once per activeTaskCountTTL with single-flight, so the
+	// per-tick SSE fan-out reuses one result instead of issuing an uncached HTTP
+	// request per stream group.
+	activeTaskCount      int
+	activeTaskCountAt    time.Time
+	activeTaskRefreshing bool
+	activeTaskMu         sync.Mutex
 }
 
-func NewClient(instanceID int, instanceHost, username, password string, basicUsername, basicPassword *string, tlsSkipVerify bool) (*Client, error) {
-	return NewClientWithTimeout(instanceID, instanceHost, username, password, basicUsername, basicPassword, tlsSkipVerify, 60*time.Second)
-}
-
-func NewClientWithTimeout(instanceID int, instanceHost, username, password string, basicUsername, basicPassword *string, tlsSkipVerify bool, timeout time.Duration) (*Client, error) {
+func NewClientWithTimeout(instanceID int, instanceHost, username, password, apiKey string, basicUsername, basicPassword *string, tlsSkipVerify bool, timeout time.Duration) (*Client, error) {
 	cfg := qbt.Config{
 		Host:          instanceHost,
 		Username:      username,
 		Password:      password,
+		APIKey:        apiKey,
 		Timeout:       int(timeout.Seconds()),
 		TLSSkipVerify: tlsSkipVerify,
 	}
@@ -114,6 +141,13 @@ func NewClientWithTimeout(instanceID int, instanceHost, username, password strin
 	}
 
 	if err := client.RefreshCapabilities(ctx); err != nil {
+		if errors.Is(err, errInvalidWebAPIVersion) {
+			client.updateHealthStatus(false)
+			return nil, fmt.Errorf("failed to verify qBittorrent session: %w", err)
+		}
+		// A transient fetch failure (e.g. timeout against a saturated-but-alive
+		// WebUI) must not block client creation; capabilities refresh on the next
+		// health check. Only a positively invalid session is terminal.
 		log.Warn().
 			Err(err).
 			Int("instanceID", instanceID).
@@ -135,13 +169,11 @@ func NewClientWithTimeout(instanceID int, instanceHost, username, password strin
 		client.handleCompletionUpdates(data)
 		client.handleAddedUpdates(data)
 		log.Trace().Int("instanceID", instanceID).Int("torrentCount", len(data.Torrents)).Msg("Sync manager update received, marking client as healthy")
+
+		client.dispatchMainData(data)
 	}
 
-	syncOpts.OnError = func(err error) {
-		client.updateHealthStatus(false)
-		client.clearServerState()
-		log.Warn().Err(err).Int("instanceID", instanceID).Msg("Sync manager error received, marking client as unhealthy")
-	}
+	syncOpts.OnError = client.handleSyncManagerError
 
 	client.syncManager = qbtClient.NewSyncManager(syncOpts)
 
@@ -150,6 +182,7 @@ func NewClientWithTimeout(instanceID int, instanceHost, username, password strin
 		Str("host", instanceHost).
 		Str("webAPIVersion", client.GetWebAPIVersion()).
 		Bool("supportsSetTags", client.SupportsSetTags()).
+		Bool("supportsSetComment", client.SupportsSetComment()).
 		Bool("supportsTorrentCreation", client.SupportsTorrentCreation()).
 		Bool("supportsTorrentExport", client.SupportsTorrentExport()).
 		Bool("supportsTrackerEditing", client.SupportsTrackerEditing()).
@@ -171,13 +204,17 @@ func (c *Client) GetLastHealthCheck() time.Time {
 	return c.lastHealthCheck
 }
 
+// GetLastSyncUpdate returns the time the cached data last actually updated, i.e.
+// the last SUCCESSFUL sync. It deliberately does not use LastSyncTime, which
+// advances on failed sync attempts too and would mask a stalled instance from
+// readiness/staleness checks.
 func (c *Client) GetLastSyncUpdate() time.Time {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.syncManager == nil {
 		return time.Time{}
 	}
-	return c.syncManager.LastSyncTime()
+	return c.syncManager.LastSuccessfulSyncTime()
 }
 
 func (c *Client) updateHealthStatus(healthy bool) {
@@ -194,6 +231,44 @@ func (c *Client) IsHealthy() bool {
 	return c.isHealthy
 }
 
+// handleSyncManagerError records qBittorrent sync failures while ignoring explicit caller cancellation.
+// Deadline expiry is treated as a real sync failure so stream error handling can
+// mark cached health stale instead of preserving a stale healthy state.
+func (c *Client) handleSyncManagerError(err error) {
+	if err == nil {
+		return
+	}
+
+	if isContextStopped(err) {
+		log.Debug().
+			Err(err).
+			Int("instanceID", c.instanceID).
+			Msg("Sync manager context stopped, keeping client health unchanged")
+		return
+	}
+
+	c.updateHealthStatus(false)
+	c.clearServerState()
+	log.Warn().Err(err).Int("instanceID", c.instanceID).Msg("Sync manager error received, marking client as unhealthy")
+
+	c.dispatchSyncError(err)
+}
+
+// isContextStopped recognizes explicit context cancellation even after retry wrappers flatten the sentinel.
+// It deliberately excludes deadline expiry, which means the qBittorrent request
+// timed out rather than the caller intentionally stopped the sync attempt.
+func isContextStopped(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context canceled")
+}
+
 func (c *Client) SupportsTorrentCreation() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -206,10 +281,30 @@ func (c *Client) SupportsTrackerEditing() bool {
 	return c.supportsTrackerEditing
 }
 
+// SetSyncEventSink registers the sink that should receive sync notifications.
+func (c *Client) SetSyncEventSink(sink SyncEventSink) {
+	c.mu.Lock()
+	c.syncEventSink = sink
+	c.mu.Unlock()
+}
+
 func (c *Client) SupportsTorrentExport() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.supportsTorrentExport
+}
+
+// truncateWebAPIVersion bounds error text when a proxy answers the webapiVersion
+// endpoint with a full HTML page instead of a version string; the raw body would
+// otherwise flood logs, SSE error payloads, and stored instance errors on every
+// retry.
+func truncateWebAPIVersion(s string) string {
+	const maxLen = 64
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxLen], "") + "..."
 }
 
 // RefreshCapabilities fetches the latest WebAPI version information and recalculates feature support flags.
@@ -221,7 +316,10 @@ func (c *Client) RefreshCapabilities(ctx context.Context) error {
 
 	version = strings.TrimSpace(version)
 	if version == "" {
-		return fmt.Errorf("web API version is empty")
+		return fmt.Errorf("%w: response body is empty", errInvalidWebAPIVersion)
+	}
+	if _, err := semver.NewVersion(version); err != nil {
+		return fmt.Errorf("%w %q: %w", errInvalidWebAPIVersion, truncateWebAPIVersion(version), err)
 	}
 
 	c.mu.Lock()
@@ -260,6 +358,7 @@ func (c *Client) applyCapabilitiesLocked(version string) {
 	}
 
 	c.supportsSetTags = !v.LessThan(setTagsMinVersion)
+	c.supportsSetComment = !v.LessThan(setCommentMinVersion)
 	c.supportsTorrentCreation = !v.LessThan(torrentCreationMinVersion)
 	c.supportsTorrentExport = !v.LessThan(exportTorrentMinVersion)
 	c.supportsTrackerEditing = !v.LessThan(trackerEditingMinVersion)
@@ -269,9 +368,12 @@ func (c *Client) applyCapabilitiesLocked(version string) {
 	c.supportsRenameFile = !v.LessThan(renameFileMinVersion)
 	c.supportsRenameFolder = !v.LessThan(renameFolderMinVersion)
 	c.supportsSubcategories = !v.LessThan(subcategoriesMinVersion)
+	c.subcategoriesAlwaysEnabled = !v.LessThan(subcategoriesAlwaysEnabledMinVersion)
 	c.supportsTorrentTmpPath = !v.LessThan(torrentTmpPathMinVersion)
 	c.supportsPathAutocomplete = !v.LessThan(pathAutocompleteMinVersion)
 	c.supportsSetRSSFeedURL = !v.LessThan(rssSetFeedURLMinVersion)
+	c.supportsShareLimitsAction = !v.LessThan(shareLimitsActionMinVersion)
+	c.supportsShareLimitsMode = !v.LessThan(shareLimitsModeMinVersion)
 }
 
 func (c *Client) updateServerState(data *qbt.MainData) {
@@ -302,28 +404,8 @@ func (c *Client) GetCachedServerState() *qbt.ServerState {
 		return nil
 	}
 
-	copy := *c.lastServerState
-	return &copy
-}
-
-func (c *Client) GetCachedConnectionStatus() string {
-	state := c.GetCachedServerState()
-	if state == nil {
-		return ""
-	}
-
-	return state.ConnectionStatus
-}
-
-// UpdateWithMainData updates the client's cached state with fresh MainData
-// This is used when intercepting sync/maindata responses to keep local state in sync
-func (c *Client) UpdateWithMainData(data *qbt.MainData) {
-	c.updateServerState(data)
-	c.updateHealthStatus(true)
-	log.Debug().
-		Int("instanceID", c.instanceID).
-		Int("torrentCount", len(data.Torrents)).
-		Msg("Updated client state with fresh maindata from intercepted request")
+	stateCopy := *c.lastServerState
+	return &stateCopy
 }
 
 // UpdateWithPeersData triggers a sync on the peer manager to keep it warm after intercepting peer data
@@ -386,6 +468,12 @@ func (c *Client) SupportsSubcategories() bool {
 	return c.supportsSubcategories
 }
 
+func (c *Client) SubcategoriesAlwaysEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.subcategoriesAlwaysEnabled
+}
+
 func (c *Client) SupportsTorrentTmpPath() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -430,6 +518,12 @@ func (c *Client) SupportsSetTags() bool {
 	return c.supportsSetTags
 }
 
+func (c *Client) SupportsSetComment() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.supportsSetComment
+}
+
 func (c *Client) SupportsTrackerHealth() bool {
 	return c.supportsTrackerInclude()
 }
@@ -438,6 +532,22 @@ func (c *Client) SupportsSetRSSFeedURL() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.supportsSetRSSFeedURL
+}
+
+// SupportsShareLimitsAction reports whether extended setShareLimits is available for ratio,
+// seeding time, inactive seeding, and share-limit action (shareLimitsActionMinVersion, Web API 2.15.1+).
+func (c *Client) SupportsShareLimitsAction() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.supportsShareLimitsAction
+}
+
+// SupportsShareLimitsMode reports whether setShareLimits accepts ShareLimitsMode (MatchAny / MatchAll).
+// Gated by shareLimitsModeMinVersion (Web API 2.16.0+).
+func (c *Client) SupportsShareLimitsMode() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.supportsShareLimitsMode
 }
 
 func (c *Client) GetWebAPIVersion() string {
@@ -480,6 +590,32 @@ func (c *Client) hydrateTorrentsWithTrackers(ctx context.Context, torrents []qbt
 func (c *Client) invalidateTrackerCache(hashes ...string) {
 	if tm := c.trackerManager(); tm != nil {
 		tm.Invalidate(hashes...)
+	}
+}
+
+func (c *Client) getSyncEventSink() SyncEventSink {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.syncEventSink
+}
+
+func (c *Client) dispatchMainData(data *qbt.MainData) {
+	if data == nil {
+		return
+	}
+
+	if sink := c.getSyncEventSink(); sink != nil {
+		sink.HandleMainData(c.instanceID, data)
+	}
+}
+
+func (c *Client) dispatchSyncError(err error) {
+	if err == nil {
+		return
+	}
+
+	if sink := c.getSyncEventSink(); sink != nil {
+		sink.HandleSyncError(c.instanceID, err)
 	}
 }
 

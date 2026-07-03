@@ -73,23 +73,27 @@ func TestEnsureCrossCategory_RevalidatesWhenRequestedSavePathChanges(t *testing.
 	}
 
 	ctx := context.Background()
+	ensure := func(path string) error {
+		_, err := service.ensureCrossCategory(ctx, instanceID, categoryName, path, true)
+		return err
+	}
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, linkModePath))
+	require.NoError(t, ensure(linkModePath))
 	getCategoriesCalls, createCategoryCalls := syncManager.callCounts()
 	require.Equal(t, 1, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, regularPath))
+	require.NoError(t, ensure(regularPath))
 	getCategoriesCalls, createCategoryCalls = syncManager.callCounts()
 	require.Equal(t, 3, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, regularPath))
+	require.NoError(t, ensure(regularPath))
 	getCategoriesCalls, createCategoryCalls = syncManager.callCounts()
 	require.Equal(t, 5, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, linkModePath))
+	require.NoError(t, ensure(linkModePath))
 	getCategoriesCalls, createCategoryCalls = syncManager.callCounts()
 	require.Equal(t, 5, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
@@ -113,13 +117,17 @@ func TestEnsureCrossCategory_CacheMatchesPathCaseInsensitively(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	ensure := func(path string) error {
+		_, err := service.ensureCrossCategory(ctx, instanceID, categoryName, path, true)
+		return err
+	}
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, initialPath))
+	require.NoError(t, ensure(initialPath))
 	getCategoriesCalls, createCategoryCalls := syncManager.callCounts()
 	require.Equal(t, 1, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
 
-	require.NoError(t, service.ensureCrossCategory(ctx, instanceID, categoryName, requestPath))
+	require.NoError(t, ensure(requestPath))
 	getCategoriesCalls, createCategoryCalls = syncManager.callCounts()
 	require.Equal(t, 1, getCategoriesCalls)
 	require.Equal(t, 1, createCategoryCalls)
@@ -146,15 +154,19 @@ func TestEnsureCrossCategory_ConcurrentDifferentRequestedPathsCreateOnce(t *test
 
 	ctx := context.Background()
 	errs := make(chan error, 2)
+	ensure := func(path string) error {
+		_, err := service.ensureCrossCategory(ctx, instanceID, categoryName, path, true)
+		return err
+	}
 
 	go func() {
-		errs <- service.ensureCrossCategory(ctx, instanceID, categoryName, linkModePath)
+		errs <- ensure(linkModePath)
 	}()
 
 	<-syncManager.getStarted
 
 	go func() {
-		errs <- service.ensureCrossCategory(ctx, instanceID, categoryName, regularPath)
+		errs <- ensure(regularPath)
 	}()
 
 	close(syncManager.releaseGet)
@@ -165,4 +177,53 @@ func TestEnsureCrossCategory_ConcurrentDifferentRequestedPathsCreateOnce(t *test
 	require.GreaterOrEqual(t, getCategoriesCalls, 2)
 	require.LessOrEqual(t, getCategoriesCalls, 3)
 	require.Equal(t, 1, createCategoryCalls)
+}
+
+func TestShouldWarnOnCategorySavePathMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                    string
+		compareExistingSavePath bool
+		requestedSavePath       string
+		existingSavePath        string
+		expectedWarn            bool
+	}{
+		{
+			name:                    "regular mode mismatch warns",
+			compareExistingSavePath: true,
+			requestedSavePath:       "/mnt/storage/torrents/cross-seeds/bhd",
+			existingSavePath:        "/mnt/storage/torrents/tv",
+			expectedWarn:            true,
+		},
+		{
+			name:                    "link mode mismatch does not warn",
+			compareExistingSavePath: false,
+			requestedSavePath:       "/mnt/storage/torrents/cross-seeds/bhd",
+			existingSavePath:        "/mnt/storage/torrents/tv",
+			expectedWarn:            false,
+		},
+		{
+			name:                    "matching paths do not warn",
+			compareExistingSavePath: true,
+			requestedSavePath:       "/mnt/storage/torrents/tv",
+			existingSavePath:        "/mnt/storage/torrents/tv",
+			expectedWarn:            false,
+		},
+		{
+			name:                    "missing requested path does not warn",
+			compareExistingSavePath: true,
+			existingSavePath:        "/mnt/storage/torrents/tv",
+			expectedWarn:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			warn := shouldWarnOnCategorySavePathMismatch(tt.compareExistingSavePath, tt.requestedSavePath, tt.existingSavePath)
+			require.Equal(t, tt.expectedWarn, warn)
+		})
+	}
 }

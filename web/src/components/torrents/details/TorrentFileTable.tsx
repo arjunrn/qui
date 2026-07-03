@@ -3,17 +3,22 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+import { FilePrioritySelect } from "@/components/torrents/FilePrioritySelect"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { TruncatedText } from "@/components/ui/truncated-text"
-import { getLinuxFileName, getLinuxFolderName } from "@/lib/incognito"
-import { cn, formatBytes } from "@/lib/utils"
+import { useFileRangeSelection } from "@/hooks/useFileRangeSelection"
+import { FILE_PRIORITY, foldFolderPriority, normalizeFilePriority, type FilePriorityValue, type FolderPriority } from "@/lib/file-priority"
+import { getLinuxFileName, getLinuxFolderName, getLinuxSavePath } from "@/lib/incognito"
+import { cn, copyTextToClipboard, formatBytes, joinPath } from "@/lib/utils"
 import type { TorrentFile } from "@/types"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ChevronDown, ChevronRight, Download, File, Folder, Info, Loader2, Pencil, Search, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Copy, Download, File, Folder, Info, Loader2, Pencil, Search, X } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
 interface TorrentFileTableProps {
   files: TorrentFile[] | undefined
@@ -22,8 +27,12 @@ interface TorrentFileTableProps {
   pendingFileIndices: Set<number>
   incognitoMode: boolean
   torrentHash: string
+  savePath?: string
   onToggleFile: (file: TorrentFile, selected: boolean) => void
+  onToggleFileRange: (indices: number[], selected: boolean) => void
   onToggleFolder: (folderPath: string, selected: boolean) => void
+  onSetFilePriority: (file: TorrentFile, priority: number) => void
+  onSetFolderPriority: (folderPath: string, priority: number) => void
   onRenameFile?: (filePath: string) => void
   onRenameFolder?: (folderPath: string) => void
   onDownloadFile?: (file: TorrentFile) => void
@@ -40,6 +49,7 @@ interface FileTreeNode {
   totalProgress: number
   selectedCount: number
   totalCount: number
+  priority: FolderPriority
 }
 
 interface FlatRow {
@@ -47,6 +57,7 @@ interface FlatRow {
   depth: number
   isExpanded: boolean
   hasChildren: boolean
+  isVisible: boolean
 }
 
 function buildFileTree(
@@ -92,6 +103,7 @@ function buildFileTree(
           totalProgress: isLeaf ? file.progress * file.size : 0,
           selectedCount: isLeaf && file.priority !== 0 ? 1 : 0,
           totalCount: isLeaf ? 1 : 0,
+          priority: isLeaf ? normalizeFilePriority(file.priority) : FILE_PRIORITY.normal,
         }
         nodeMap.set(currentPath, node)
 
@@ -117,6 +129,9 @@ function buildFileTree(
       node.totalProgress = node.children.reduce((sum, child) => sum + child.totalProgress, 0)
       node.selectedCount = node.children.reduce((sum, child) => sum + child.selectedCount, 0)
       node.totalCount = node.children.reduce((sum, child) => sum + child.totalCount, 0)
+      if (node.children.length > 0) {
+        node.priority = node.children.map(child => child.priority).reduce(foldFolderPriority)
+      }
     }
   }
 
@@ -143,18 +158,27 @@ function buildFileTree(
 function flattenTree(
   nodes: FileTreeNode[],
   expandedFolders: Set<string>,
-  depth = 0
+  depth = 0,
+  visible = false
 ): FlatRow[] {
   const rows: FlatRow[] = []
 
   for (const node of nodes) {
     const hasChildren = node.kind === "folder" && Boolean(node.children?.length)
     const isExpanded = expandedFolders.has(node.id)
+    const isVisible = depth === 0 || visible
 
-    rows.push({ node, depth, isExpanded, hasChildren })
+    rows.push({ node, depth, isExpanded, hasChildren, isVisible })
 
-    if (hasChildren && isExpanded && node.children) {
-      rows.push(...flattenTree(node.children, expandedFolders, depth + 1))
+    if (hasChildren && node.children) {
+      rows.push(
+        ...flattenTree(
+          node.children,
+          expandedFolders,
+          depth + 1,
+          isVisible && isExpanded
+        )
+      )
     }
   }
 
@@ -168,13 +192,18 @@ export const TorrentFileTable = memo(function TorrentFileTable({
   pendingFileIndices,
   incognitoMode,
   torrentHash,
+  savePath,
   onToggleFile,
+  onToggleFileRange,
   onToggleFolder,
+  onSetFilePriority,
+  onSetFolderPriority,
   onRenameFile,
   onRenameFolder,
   onDownloadFile,
   onShowMediaInfo,
 }: TorrentFileTableProps) {
+  const { t } = useTranslation("torrents")
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
   const [searchQuery, setSearchQuery] = useState("")
   const initializedForHash = useRef<string | null>(null)
@@ -210,7 +239,8 @@ export const TorrentFileTable = memo(function TorrentFileTable({
 
   // Filter rows based on search query
   const filteredRows = useMemo(() => {
-    if (!searchQuery.trim()) return flatRows
+    const visibleRows = flatRows.filter((row) => row.isVisible)
+    if (!searchQuery.trim()) return visibleRows
 
     const query = searchQuery.toLowerCase()
     const matchingIds = new Set<string>()
@@ -229,7 +259,7 @@ export const TorrentFileTable = memo(function TorrentFileTable({
       }
     }
 
-    return flatRows.filter(row => matchingIds.has(row.node.id))
+    return visibleRows.filter((row) => matchingIds.has(row.node.id))
   }, [flatRows, searchQuery])
 
   // Row height: 28px for file rows (with some padding)
@@ -283,6 +313,13 @@ export const TorrentFileTable = memo(function TorrentFileTable({
     setExpandedFolders(new Set())
   }, [])
 
+  const { handleCheckboxPointerDown, clearShift, handleFileCheckbox } = useFileRangeSelection({
+    getRows: () => filteredRows,
+    onToggleFile,
+    onToggleFileRange,
+    resetKey: torrentHash,
+  })
+
   if (loading && !files) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -294,7 +331,7 @@ export const TorrentFileTable = memo(function TorrentFileTable({
   if (!files || files.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        No files
+        {t("fileTable.noFiles")}
       </div>
     )
   }
@@ -307,20 +344,20 @@ export const TorrentFileTable = memo(function TorrentFileTable({
           className="text-muted-foreground hover:text-foreground"
           onClick={expandAll}
         >
-          Expand All
+          {t("fileTable.expandAll")}
         </button>
         <span className="text-muted-foreground">/</span>
         <button
           className="text-muted-foreground hover:text-foreground"
           onClick={collapseAll}
         >
-          Collapse All
+          {t("fileTable.collapseAll")}
         </button>
         <div className="relative ml-2">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search files..."
+            placeholder={t("fileTable.searchFiles")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="h-6 w-40 pl-7 pr-7 text-xs"
@@ -335,7 +372,7 @@ export const TorrentFileTable = memo(function TorrentFileTable({
           )}
         </div>
         <span className="ml-auto text-muted-foreground">
-          {searchQuery ? `${filteredRows.length} of ${files.length}` : `${files.length} file${files.length !== 1 ? "s" : ""}`}
+          {searchQuery ? t("fileTable.filteredCount", { filtered: filteredRows.length, total: files.length }) : t("fileTable.fileCount", { count: files.length, plural: files.length !== 1 ? "s" : "" })}
         </span>
       </div>
 
@@ -343,15 +380,18 @@ export const TorrentFileTable = memo(function TorrentFileTable({
         ref={scrollContainerRef}
         className="flex-1 min-h-0 overflow-auto scrollbar-thin"
       >
-        <div className="min-w-[500px]">
+        <div className={cn("min-w-[500px]", supportsFilePriority && "min-w-[640px]")}>
           {/* Header - sticky */}
           <div className="sticky top-0 z-10 bg-background border-b flex text-xs">
             {supportsFilePriority && (
               <div className="w-8 px-2 py-1.5 text-left shrink-0"></div>
             )}
-            <div className="flex-1 px-2 py-1.5 text-left font-medium text-muted-foreground">Name</div>
-            <div className="w-28 px-2 py-1.5 text-left font-medium text-muted-foreground shrink-0">Progress</div>
-            <div className="w-24 px-2 py-1.5 text-right font-medium text-muted-foreground shrink-0">Size</div>
+            <div className="flex-1 px-2 py-1.5 text-left font-medium text-muted-foreground">{t("fileTable.headers.name")}</div>
+            <div className="w-28 px-2 py-1.5 text-left font-medium text-muted-foreground shrink-0">{t("fileTable.headers.progress")}</div>
+            <div className="w-24 px-2 py-1.5 text-right font-medium text-muted-foreground shrink-0">{t("fileTable.headers.size")}</div>
+            {supportsFilePriority && (
+              <div className="w-36 px-2 py-1.5 text-left font-medium text-muted-foreground shrink-0">{t("filePriority.header")}</div>
+            )}
           </div>
           {/* Virtualized body */}
           <div
@@ -388,10 +428,12 @@ export const TorrentFileTable = memo(function TorrentFileTable({
                     <div className="w-8 px-2 py-1.5 shrink-0 flex items-center">
                       <Checkbox
                         checked={isIndeterminate ? "indeterminate" : isSelected}
+                        onPointerDown={handleCheckboxPointerDown}
                         onCheckedChange={(checked) => {
                           if (isFile && file) {
-                            onToggleFile(file, checked === true)
+                            handleFileCheckbox(file, virtualRow.index, checked === true)
                           } else {
+                            clearShift()
                             onToggleFolder(node.id, checked === true)
                           }
                         }}
@@ -448,6 +490,22 @@ export const TorrentFileTable = memo(function TorrentFileTable({
                   <div className="w-24 px-2 py-1.5 text-right tabular-nums shrink-0">
                     {formatBytes(node.totalSize)}
                   </div>
+                  {supportsFilePriority && (
+                    <div className="w-36 px-2 shrink-0 flex items-center">
+                      <FilePrioritySelect
+                        value={node.priority}
+                        disabled={isPending}
+                        className="w-full"
+                        onChange={(priority: FilePriorityValue) => {
+                          if (isFile && file) {
+                            onSetFilePriority(file, priority)
+                          } else {
+                            onSetFolderPriority(node.id, priority)
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               )
 
@@ -459,13 +517,27 @@ export const TorrentFileTable = memo(function TorrentFileTable({
                       {rowContent}
                     </ContextMenuTrigger>
                     <ContextMenuContent>
+                      <ContextMenuItem
+                        onClick={async () => {
+                          const fullPath = incognitoMode? joinPath(getLinuxSavePath(torrentHash), node.name): savePath? joinPath(savePath, node.id): node.id
+                          try {
+                            await copyTextToClipboard(fullPath)
+                            toast.success(isFile ? t("fileTable.filePathCopied") : t("fileTable.folderPathCopied"))
+                          } catch {
+                            toast.error(t("fileTable.copyPathFailed"))
+                          }
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        {t("fileTable.copyPath")}
+                      </ContextMenuItem>
                       {isFile && onDownloadFile && node.file && (
                         <ContextMenuItem
                           onClick={() => onDownloadFile(node.file!)}
                           disabled={incognitoMode}
                         >
                           <Download className="h-3.5 w-3.5 mr-2" />
-                          Download
+                          {t("fileTable.download")}
                         </ContextMenuItem>
                       )}
                       {isFile && onShowMediaInfo && node.file && (
@@ -474,19 +546,19 @@ export const TorrentFileTable = memo(function TorrentFileTable({
                           disabled={incognitoMode}
                         >
                           <Info className="h-3.5 w-3.5 mr-2" />
-                          MediaInfo
+                          {t("fileTable.mediaInfo")}
                         </ContextMenuItem>
                       )}
                       {isFile && onRenameFile && (
                         <ContextMenuItem onClick={() => onRenameFile(node.id)}>
                           <Pencil className="h-3.5 w-3.5 mr-2" />
-                          Rename File
+                          {t("fileTable.renameFile")}
                         </ContextMenuItem>
                       )}
                       {!isFile && onRenameFolder && (
                         <ContextMenuItem onClick={() => onRenameFolder(node.id)}>
                           <Pencil className="h-3.5 w-3.5 mr-2" />
-                          Rename Folder
+                          {t("fileTable.renameFolder")}
                         </ContextMenuItem>
                       )}
                     </ContextMenuContent>

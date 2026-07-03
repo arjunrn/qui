@@ -13,12 +13,15 @@ import { Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useTranslation } from "react-i18next"
 import { MobileScrollProvider } from "@/contexts/MobileScrollContext"
 import { TorrentSelectionProvider } from "@/contexts/TorrentSelectionContext"
 import { ThemeValidator } from "@/components/themes/ThemeValidator"
 import { ThemeEffectsLayer } from "@/components/themes/ThemeEffectsLayer"
+import { CustomThemesLoader } from "@/components/themes/CustomThemesLoader"
 
 function AppLayoutContent() {
+  const { t } = useTranslation("common")
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedSidebarState(false) // Desktop: persisted state
 
   return (
@@ -54,7 +57,7 @@ function AppLayoutContent() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+              {sidebarCollapsed ? t("sidebar.showSidebar") : t("sidebar.hideSidebar")}
             </TooltipContent>
           </Tooltip>
         </Header>
@@ -76,6 +79,7 @@ export function AppLayout() {
   return (
     <LayoutRouteProvider>
       <ThemeValidator />
+      <CustomThemesLoader />
       <TorrentSelectionProvider>
         <MobileScrollProvider>
           <AppLayoutContent />

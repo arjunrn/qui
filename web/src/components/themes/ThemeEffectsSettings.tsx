@@ -22,7 +22,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
 import {
   Select,
   SelectContent,
@@ -308,13 +307,15 @@ export function ThemeEffectsSettings({ themeId, compact = false }: ThemeEffectsS
             <Label htmlFor={`${fileInputPrefix}-background-opacity`}>Background Opacity</Label>
             <span className="text-sm text-muted-foreground">{draft.backgroundOpacity}%</span>
           </div>
-          <Slider
+          <input
             id={`${fileInputPrefix}-background-opacity`}
+            type="range"
             min={0}
             max={100}
             step={1}
-            value={[draft.backgroundOpacity]}
-            onValueChange={(value) => setDraft(prev => ({ ...prev, backgroundOpacity: value[0] ?? prev.backgroundOpacity }))}
+            value={draft.backgroundOpacity}
+            onChange={(event) => setDraft(prev => ({ ...prev, backgroundOpacity: Number(event.target.value) }))}
+            className="w-full accent-primary"
           />
           <p className="text-xs text-muted-foreground">
             Recommended: 25-55. Lower values blend art into the UI and help dense screens stay readable.
@@ -326,13 +327,15 @@ export function ThemeEffectsSettings({ themeId, compact = false }: ThemeEffectsS
             <Label htmlFor={`${fileInputPrefix}-overlay-strength`}>Overlay Strength</Label>
             <span className="text-sm text-muted-foreground">{draft.overlayStrength}%</span>
           </div>
-          <Slider
+          <input
             id={`${fileInputPrefix}-overlay-strength`}
+            type="range"
             min={0}
             max={100}
             step={1}
-            value={[draft.overlayStrength]}
-            onValueChange={(value) => setDraft(prev => ({ ...prev, overlayStrength: value[0] ?? prev.overlayStrength }))}
+            value={draft.overlayStrength}
+            onChange={(event) => setDraft(prev => ({ ...prev, overlayStrength: Number(event.target.value) }))}
+            className="w-full accent-primary"
           />
           <p className="text-xs text-muted-foreground">
             Recommended: 15-45 for most backgrounds. Use this after you tune image opacity.
