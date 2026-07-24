@@ -179,9 +179,10 @@ func (s *Service) RequestReannounce(ctx context.Context, instanceID int, hashes 
 	}
 	upperHashes := normalizeHashes(hashes)
 	torrents := s.lookupTorrents(ctx, instanceID, upperHashes)
+	now := s.currentTime()
 	var handled []string
 	for hash, torrent := range torrents {
-		if !s.torrentMeetsCriteria(torrent, settings) {
+		if !s.torrentMeetsCriteria(torrent, settings, now) {
 			continue
 		}
 		if s.hasHealthyTracker(torrent.Trackers) {
@@ -259,8 +260,9 @@ func (s *Service) scanInstance(ctx context.Context, instanceID int, settings *mo
 		return
 	}
 
+	now := s.currentTime()
 	for _, torrent := range torrents {
-		if !s.torrentMeetsCriteria(torrent, settings) {
+		if !s.torrentMeetsCriteria(torrent, settings, now) {
 			continue
 		}
 		// Skip if we have tracker data and it shows healthy.
@@ -309,12 +311,12 @@ func (s *Service) GetMonitoredTorrents(ctx context.Context, instanceID int) []Mo
 	for _, torrent := range torrents {
 		// Use torrentMatchesFilters (not torrentMeetsCriteria) so we can show
 		// torrents still in their initial wait period
-		if !s.torrentMatchesFilters(torrent, settings) {
+		if !s.torrentMatchesFilters(torrent, settings, now) {
 			continue
 		}
 
-		// Check if torrent is still in initial wait period
-		inInitialWait := settings.InitialWaitSeconds > 0 && torrent.TimeActive < int64(settings.InitialWaitSeconds)
+		// Check if torrent is still in initial wait period (since it was added)
+		inInitialWait := torrentInInitialWait(settings, torrent, now)
 
 		healthy := s.hasHealthyTracker(torrent.Trackers)
 		updating := s.trackersUpdating(torrent.Trackers)
@@ -538,14 +540,35 @@ func (s *Service) getSettings(ctx context.Context, instanceID int) *models.Insta
 	return models.DefaultInstanceReannounceSettings(instanceID)
 }
 
+// torrentAgeSeconds returns wall-clock seconds since the torrent was added.
+// Returns -1 when the added timestamp is unknown (AddedOn <= 0) so callers can
+// skip age-based gating rather than treating the epoch as "added in 1970".
+func torrentAgeSeconds(now time.Time, torrent qbt.Torrent) int64 {
+	if torrent.AddedOn <= 0 {
+		return -1
+	}
+	if age := now.Unix() - torrent.AddedOn; age > 0 {
+		return age
+	}
+	return 0 // clamp clock-skew (AddedOn slightly in the future) to 0
+}
+
+// torrentInInitialWait reports whether the torrent was added too recently to be
+// eligible for reannounce yet. Age gating fails open: an unknown added timestamp
+// (age < 0) is never treated as being in the initial wait period.
+func torrentInInitialWait(settings *models.InstanceReannounceSettings, torrent qbt.Torrent, now time.Time) bool {
+	age := torrentAgeSeconds(now, torrent)
+	return settings.InitialWaitSeconds > 0 && age >= 0 && age < int64(settings.InitialWaitSeconds)
+}
+
 // torrentMeetsCriteria checks if a torrent is ready for reannounce consideration.
 // This includes filter matching AND the initial wait period.
-func (s *Service) torrentMeetsCriteria(torrent qbt.Torrent, settings *models.InstanceReannounceSettings) bool {
-	if !s.torrentMatchesFilters(torrent, settings) {
+func (s *Service) torrentMeetsCriteria(torrent qbt.Torrent, settings *models.InstanceReannounceSettings, now time.Time) bool {
+	if !s.torrentMatchesFilters(torrent, settings, now) {
 		return false
 	}
-	// Check initial wait - torrent must be old enough
-	if settings.InitialWaitSeconds > 0 && torrent.TimeActive < int64(settings.InitialWaitSeconds) {
+	// Torrent must be old enough since it was added
+	if torrentInInitialWait(settings, torrent, now) {
 		return false
 	}
 	return true
@@ -554,7 +577,7 @@ func (s *Service) torrentMeetsCriteria(torrent qbt.Torrent, settings *models.Ins
 // torrentMatchesFilters checks if a torrent matches the monitoring scope (state, age,
 // category/tag/tracker filters) WITHOUT checking the initial wait period. Used by
 // GetMonitoredTorrents to show new torrents that are still in their initial wait.
-func (s *Service) torrentMatchesFilters(torrent qbt.Torrent, settings *models.InstanceReannounceSettings) bool {
+func (s *Service) torrentMatchesFilters(torrent qbt.Torrent, settings *models.InstanceReannounceSettings, now time.Time) bool {
 	if settings == nil || !settings.Enabled {
 		return false
 	}
@@ -564,7 +587,7 @@ func (s *Service) torrentMatchesFilters(torrent qbt.Torrent, settings *models.In
 		return false
 	}
 
-	if settings.MaxAgeSeconds > 0 && torrent.TimeActive > int64(settings.MaxAgeSeconds) {
+	if age := torrentAgeSeconds(now, torrent); settings.MaxAgeSeconds > 0 && age >= 0 && age > int64(settings.MaxAgeSeconds) {
 		return false
 	}
 

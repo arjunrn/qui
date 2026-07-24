@@ -16,6 +16,58 @@ import (
 	"github.com/autobrr/qui/internal/models"
 )
 
+// testBaseTime is a fixed reference "now" used so age-based gating (derived from
+// AddedOn) is deterministic in tests. addedAgo builds an AddedOn timestamp for a
+// torrent added the given number of seconds before testBaseTime.
+var testBaseTime = time.Unix(1_700_000_000, 0)
+
+func addedAgo(seconds int64) int64 {
+	return testBaseTime.Unix() - seconds
+}
+
+func TestTorrentAgeSeconds(t *testing.T) {
+	tests := []struct {
+		name    string
+		addedOn int64
+		want    int64
+	}{
+		{name: "normal age", addedOn: addedAgo(120), want: 120},
+		{name: "just added", addedOn: testBaseTime.Unix(), want: 0},
+		{name: "unknown timestamp", addedOn: 0, want: -1},
+		{name: "future timestamp clamps to zero", addedOn: testBaseTime.Unix() + 300, want: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := torrentAgeSeconds(testBaseTime, qbt.Torrent{AddedOn: tc.addedOn})
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestTorrentInInitialWait(t *testing.T) {
+	tests := []struct {
+		name     string
+		waitSecs int
+		addedOn  int64
+		want     bool
+	}{
+		{name: "disabled when wait is zero", waitSecs: 0, addedOn: addedAgo(1), want: false},
+		{name: "recently added is in wait", waitSecs: 15, addedOn: addedAgo(5), want: true},
+		{name: "added long enough ago is not in wait", waitSecs: 15, addedOn: addedAgo(20), want: false},
+		{name: "exactly at threshold is not in wait", waitSecs: 15, addedOn: addedAgo(15), want: false},
+		{name: "unknown added timestamp fails open", waitSecs: 15, addedOn: 0, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := &models.InstanceReannounceSettings{InitialWaitSeconds: tc.waitSecs}
+			torrent := qbt.Torrent{AddedOn: tc.addedOn}
+			require.Equal(t, tc.want, torrentInInitialWait(settings, torrent, testBaseTime))
+		})
+	}
+}
+
 func TestTorrentMeetsCriteria_MonitorAllAndAge(t *testing.T) {
 	service := &Service{}
 	settings := &models.InstanceReannounceSettings{
@@ -24,14 +76,18 @@ func TestTorrentMeetsCriteria_MonitorAllAndAge(t *testing.T) {
 		MaxAgeSeconds: 600,
 	}
 
-	newTorrent := qbt.Torrent{TimeActive: 120, State: qbt.TorrentStateStalledUp}
-	require.True(t, service.torrentMeetsCriteria(newTorrent, settings), "expected new torrent to meet criteria when MonitorAll=true and age is below MaxAge")
+	newTorrent := qbt.Torrent{AddedOn: addedAgo(120), State: qbt.TorrentStateStalledUp}
+	require.True(t, service.torrentMeetsCriteria(newTorrent, settings, testBaseTime), "expected new torrent to meet criteria when MonitorAll=true and age is below MaxAge")
 
-	oldTorrent := qbt.Torrent{TimeActive: 601, State: qbt.TorrentStateStalledUp}
-	require.False(t, service.torrentMeetsCriteria(oldTorrent, settings), "expected old torrent to be filtered out when TimeActive exceeds MaxAge")
+	oldTorrent := qbt.Torrent{AddedOn: addedAgo(601), State: qbt.TorrentStateStalledUp}
+	require.False(t, service.torrentMeetsCriteria(oldTorrent, settings, testBaseTime), "expected old torrent to be filtered out when age exceeds MaxAge")
+
+	// Unknown added timestamp (AddedOn == 0) must not be filtered out by MaxAge - age gating fails open.
+	unknownAge := qbt.Torrent{AddedOn: 0, State: qbt.TorrentStateStalledUp}
+	require.True(t, service.torrentMeetsCriteria(unknownAge, settings, testBaseTime), "expected unknown-age torrent to skip MaxAge gating")
 
 	disabled := &models.InstanceReannounceSettings{Enabled: false, MonitorAll: true}
-	require.False(t, service.torrentMeetsCriteria(newTorrent, disabled), "expected disabled settings to skip all torrents")
+	require.False(t, service.torrentMeetsCriteria(newTorrent, disabled, testBaseTime), "expected disabled settings to skip all torrents")
 }
 
 func TestTorrentMeetsCriteria_RequiresStalledState(t *testing.T) {
@@ -42,13 +98,13 @@ func TestTorrentMeetsCriteria_RequiresStalledState(t *testing.T) {
 	}
 
 	// Stalled states should pass
-	require.True(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateStalledUp}, settings))
-	require.True(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateStalledDl}, settings))
+	require.True(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateStalledUp}, settings, testBaseTime))
+	require.True(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateStalledDl}, settings, testBaseTime))
 
 	// Active states should fail
-	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateDownloading}, settings))
-	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateUploading}, settings))
-	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateQueuedUp}, settings))
+	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateDownloading}, settings, testBaseTime))
+	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateUploading}, settings, testBaseTime))
+	require.False(t, service.torrentMeetsCriteria(qbt.Torrent{State: qbt.TorrentStateQueuedUp}, settings, testBaseTime))
 }
 
 func TestTorrentMeetsCriteria_ScopedByCategoryTagAndTracker(t *testing.T) {
@@ -63,26 +119,26 @@ func TestTorrentMeetsCriteria_ScopedByCategoryTagAndTracker(t *testing.T) {
 	}
 
 	// Matches by category
-	catTorrent := qbt.Torrent{TimeActive: 10, Category: "tv", State: qbt.TorrentStateStalledUp}
-	require.True(t, service.torrentMeetsCriteria(catTorrent, settings), "expected matching category")
+	catTorrent := qbt.Torrent{AddedOn: addedAgo(10), Category: "tv", State: qbt.TorrentStateStalledUp}
+	require.True(t, service.torrentMeetsCriteria(catTorrent, settings, testBaseTime), "expected matching category")
 
 	// Matches by tag
-	tagTorrent := qbt.Torrent{TimeActive: 10, Category: "movies", Tags: "tagA, tagB", State: qbt.TorrentStateStalledUp}
-	require.True(t, service.torrentMeetsCriteria(tagTorrent, settings), "expected matching tag")
+	tagTorrent := qbt.Torrent{AddedOn: addedAgo(10), Category: "movies", Tags: "tagA, tagB", State: qbt.TorrentStateStalledUp}
+	require.True(t, service.torrentMeetsCriteria(tagTorrent, settings, testBaseTime), "expected matching tag")
 
 	// Matches by tracker domain using raw URL when syncManager is nil
 	trackerTorrent := qbt.Torrent{
-		TimeActive: 10,
-		State:      qbt.TorrentStateStalledUp,
+		AddedOn: addedAgo(10),
+		State:   qbt.TorrentStateStalledUp,
 		Trackers: []qbt.TorrentTracker{{
 			Url: "tracker.example.com",
 		}},
 	}
-	require.True(t, service.torrentMeetsCriteria(trackerTorrent, settings), "expected matching tracker")
+	require.True(t, service.torrentMeetsCriteria(trackerTorrent, settings, testBaseTime), "expected matching tracker")
 
 	// Non-matching torrent should be filtered out
-	nonMatch := qbt.Torrent{TimeActive: 10, Category: "music", Tags: "other", Trackers: []qbt.TorrentTracker{{Url: "other.tracker"}}, State: qbt.TorrentStateStalledUp}
-	require.False(t, service.torrentMeetsCriteria(nonMatch, settings), "expected non match to be filtered")
+	nonMatch := qbt.Torrent{AddedOn: addedAgo(10), Category: "music", Tags: "other", Trackers: []qbt.TorrentTracker{{Url: "other.tracker"}}, State: qbt.TorrentStateStalledUp}
+	require.False(t, service.torrentMeetsCriteria(nonMatch, settings, testBaseTime), "expected non match to be filtered")
 }
 
 func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
@@ -99,7 +155,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 			settings: models.InstanceReannounceSettings{
 				Enabled: false,
 			},
-			torrent: qbt.Torrent{TimeActive: 10, State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -108,7 +164,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				Enabled:       true,
 				MaxAgeSeconds: 60,
 			},
-			torrent: qbt.Torrent{TimeActive: 61, State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(61), State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -118,18 +174,8 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				MonitorAll:         true,
 				InitialWaitSeconds: 15,
 			},
-			torrent: qbt.Torrent{TimeActive: 10, State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), State: qbt.TorrentStateStalledUp},
 			want:    false,
-		},
-		{
-			name: "Initial Wait Met",
-			settings: models.InstanceReannounceSettings{
-				Enabled:            true,
-				MonitorAll:         true,
-				InitialWaitSeconds: 15,
-			},
-			torrent: qbt.Torrent{TimeActive: 20, State: qbt.TorrentStateStalledUp},
-			want:    true,
 		},
 		{
 			name: "Monitor All - No Exclusions",
@@ -137,7 +183,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				Enabled:    true,
 				MonitorAll: true,
 			},
-			torrent: qbt.Torrent{TimeActive: 10, State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), State: qbt.TorrentStateStalledUp},
 			want:    true,
 		},
 		{
@@ -148,7 +194,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeCategories: true,
 				Categories:        []string{"TV"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "TV", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "TV", State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -159,7 +205,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeCategories: true,
 				Categories:        []string{"TV"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "Movies", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "Movies", State: qbt.TorrentStateStalledUp},
 			want:    true,
 		},
 		{
@@ -170,7 +216,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeTags: true,
 				Tags:        []string{"iso"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Tags: "iso, linux", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Tags: "iso, linux", State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -182,9 +228,9 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				Trackers:        []string{"linux.iso"},
 			},
 			torrent: qbt.Torrent{
-				TimeActive: 10,
-				State:      qbt.TorrentStateStalledUp,
-				Trackers:   []qbt.TorrentTracker{{Url: "http://linux.iso/announce"}},
+				AddedOn:  addedAgo(10),
+				State:    qbt.TorrentStateStalledUp,
+				Trackers: []qbt.TorrentTracker{{Url: "http://linux.iso/announce"}},
 			},
 			want: false,
 		},
@@ -196,7 +242,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeCategories: false,
 				Categories:        []string{"TV"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "TV", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "TV", State: qbt.TorrentStateStalledUp},
 			want:    true,
 		},
 		{
@@ -207,7 +253,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeCategories: false,
 				Categories:        []string{"TV"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "Movies", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "Movies", State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -218,7 +264,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeTags: false,
 				Tags:        []string{"hd"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Tags: "hd", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Tags: "hd", State: qbt.TorrentStateStalledUp},
 			want:    true,
 		},
 		{
@@ -230,9 +276,9 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				Trackers:        []string{"tracker.op"},
 			},
 			torrent: qbt.Torrent{
-				TimeActive: 10,
-				State:      qbt.TorrentStateStalledUp,
-				Trackers:   []qbt.TorrentTracker{{Url: "http://tracker.op/announce"}},
+				AddedOn:  addedAgo(10),
+				State:    qbt.TorrentStateStalledUp,
+				Trackers: []qbt.TorrentTracker{{Url: "http://tracker.op/announce"}},
 			},
 			want: true,
 		},
@@ -246,7 +292,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeTags:       false,
 				Tags:              []string{"bad"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "TV", Tags: "bad", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "TV", Tags: "bad", State: qbt.TorrentStateStalledUp},
 			want:    false,
 		},
 		{
@@ -259,7 +305,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 				ExcludeTags:       false,
 				Tags:              []string{"good"},
 			},
-			torrent: qbt.Torrent{TimeActive: 10, Category: "Movies", Tags: "good", State: qbt.TorrentStateStalledUp},
+			torrent: qbt.Torrent{AddedOn: addedAgo(10), Category: "Movies", Tags: "good", State: qbt.TorrentStateStalledUp},
 			want:    true,
 		},
 	}
@@ -267,7 +313,7 @@ func TestTorrentMeetsCriteria_IncludeExcludeLogic(t *testing.T) {
 	service := &Service{}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := service.torrentMeetsCriteria(tc.torrent, &tc.settings)
+			got := service.torrentMeetsCriteria(tc.torrent, &tc.settings, testBaseTime)
 			assert.Equal(t, tc.want, got)
 		})
 	}
